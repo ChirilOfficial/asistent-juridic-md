@@ -3,3 +3,4 @@ chromadb
 sentence-transformers
 groq
 gdown
+torch --index-url https://download.pytorch.org/whl/cpu
