@@ -1,166 +1,109 @@
-import os
-import zipfile
-import urllib.request
 import streamlit as st
-import chromadb
+from qdrant_client import QdrantClient
 from sentence_transformers import SentenceTransformer
 from groq import Groq
 
-# Oprește scanarea Streamlit pe modulele PyTorch (previne WinError 4551)
-os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
+# ---------------------------------------------------------
+# 1. Configurare Pagină Web
+# ---------------------------------------------------------
+st.set_page_config(
+    page_title="Asistent Juridic Moldova", 
+    page_icon="⚖️", 
+    layout="centered"
+)
 
-# =========================================================
-# ⚙️ 1. CONFIGURARE PAGINĂ STREAMLIT
-# =========================================================
-st.set_page_config(page_title="Asistent Juridic Moldova", page_icon="⚖️", layout="wide")
-
-# =========================================================
-# 📥 2. DESCĂRCARE AUTOMATĂ BAZĂ DE DATE DIN HUGGING FACE
-# =========================================================
-# ⚠️ Pune linkul tău direct din Hugging Face între ghilimele:
-DB_URL = "https://huggingface.co/datasets/ChirilOfficial/asistent-juridic-db/resolve/main/chroma_db_FINAL_LOCAL.zip" 
-ZIP_PATH = "chroma_db_FINAL_LOCAL.zip"
-DB_DIR = "chroma_db_FINAL_LOCAL"
-
-if not os.path.exists(DB_DIR):
-    with st.spinner("🔍 Se descarcă baza de date juridică (se execută doar la prima pornire)..."):
-        try:
-            # Descărcare directă prin urllib (rapidă și fără blocaje)
-            urllib.request.urlretrieve(DB_URL, ZIP_PATH)
-            
-            # Dezarhivare
-            with zipfile.ZipFile(ZIP_PATH, 'r') as zip_ref:
-                zip_ref.extractall(".")
-            
-            # Ștergere arhivă zip
-            if os.path.exists(ZIP_PATH):
-                os.remove(ZIP_PATH)
-        except Exception as e:
-            st.error(f"Eroare la descărcarea bazei de date: {e}")
-            st.stop()
-
-# =========================================================
-# 🔑 3. PRELUARE CHEIE API GROQ
-# =========================================================
-if "GROQ_API_KEY" not in st.secrets:
-    st.error("🔑 Cheia GROQ_API_KEY nu a fost găsită în Streamlit Secrets!")
-    st.stop()
-
-GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
-
-# =========================================================
-# 🧠 4. ÎNCĂRCARE MODEL ȘI BAZĂ DE DATE (CACHED)
-# =========================================================
-@st.cache_resource
-def load_rag_pipeline():
-    chroma_client = chromadb.PersistentClient(path=f"./{DB_DIR}")
-    
-    collections = chroma_client.list_collections()
-    if not collections:
-        raise ValueError(f"Nu s-a găsit nicio colecție în folderul {DB_DIR}!")
-        
-    collection = collections[0]
-    embedder = SentenceTransformer("intfloat/multilingual-e5-small", device="cpu")
-    return collection, embedder
-
-collection, embedder = load_rag_pipeline()
-client = Groq(api_key=GROQ_API_KEY)
-
-# =========================================================
-# 🎨 5. INTERFAȚĂ UTILIZATOR (UI)
-# =========================================================
 st.title("⚖️ Asistent Juridic AI - Republica Moldova")
-st.caption("Căutare semantică și analiză inteligentă în baza de date unificată legis.md.")
+st.markdown("Adresează o întrebare juridică. Sistemul caută în peste **1.16 milioane de articole de lege** și formulează un răspuns argumentat.")
 
-with st.sidebar:
-    st.header("⚖️ Despre Proiect")
-    st.markdown("Acest asistent folosește Inteligența Artificială pentru a analiza baza de date legislativă oficială **legis.md**.")
-    st.markdown("---")
-    st.info("💡 **Sfat:** Adresează orice întrebare juridică privind Republica Moldova.")
+# ---------------------------------------------------------
+# 2. Configurare Credențiale
+# ---------------------------------------------------------
+# Preluăm cheile din Streamlit Secrets sau direct din cod
+QDRANT_URL = st.secrets.get("QDRANT_URL", "https://5ff2f6d0-eba5-423b-b98f-945782950dcc.us-west-2-0.aws.cloud.qdrant.io")
+QDRANT_API_KEY = st.secrets.get("QDRANT_API_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIiwic3ViamVjdCI6ImFwaS1rZXk6NGIyMWQ0ZTgtYmQ1OC00ZWVkLTlhNWItZmE5MTYxNjVhNmIxIn0.XXltHq_43TZZcTuR57V-M_egsOPI_a3OwSre6oDCeuc")
+GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "PUNE_AICI_CHEIA_TA_GROQ_gsk_...")
 
+# ---------------------------------------------------------
+# 3. Inițializare Modele (se încarcă o singură dată în memorie)
+# ---------------------------------------------------------
+@st.cache_resource
+def init_services():
+    embed_model = SentenceTransformer("intfloat/multilingual-e5-small")
+    qdrant = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY, prefer_grpc=False)
+    groq_client = Groq(api_key=GROQ_API_KEY)
+    return embed_model, qdrant, groq_client
+
+embed_model, qdrant, groq_client = init_services()
+
+# ---------------------------------------------------------
+# 4. Istoric Chat
+# ---------------------------------------------------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+# Afișează istoricul conversației
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# =========================================================
-# 💬 6. PROCESARE ÎNTREBARE
-# =========================================================
-if user_query := st.chat_input("Adresează o întrebare despre legislația RM..."):
-
-    history_context = ""
-    if st.session_state.messages:
-        recent_messages = st.session_state.messages[-4:]
-        for msg in recent_messages:
-            role_name = "Utilizator" if msg["role"] == "user" else "Asistent"
-            clean_content = msg["content"].split("---")[0].strip()
-            history_context += f"{role_name}: {clean_content}\n"
-
+# ---------------------------------------------------------
+# 5. Fluxul Principal (Întrebare -> Căutare -> Generare)
+# ---------------------------------------------------------
+if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concediere?"):
+    # Afișăm întrebarea utilizatorului
+    st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
-        st.markdown(user_query)
+        st.markdown(prompt)
 
+    # Generăm răspunsul
     with st.chat_message("assistant"):
-        with st.spinner("🔍 Se analizează legislația Republicii Moldova..."):
+        with st.spinner("🔍 Caut în baza de date juridică și formulez răspunsul..."):
             
-            formatted_query = f"query: {user_query} Codul Civil Codul Contraventional Lege Republica Moldova"
-            query_vector = embedder.encode([formatted_query], normalize_embeddings=True).tolist()
-
-            results = collection.query(
-                query_embeddings=query_vector,
-                n_results=10
+            # Pasul A: Căutare semantică în Qdrant Cloud
+            query_vector = embed_model.encode(f"query: {prompt}").tolist()
+            rezultate = qdrant.query_points(
+                collection_name="legis_md",
+                query=query_vector,
+                limit=5
             )
 
-            context_blocks = []
-            sources = []
-            
-            for i, doc in enumerate(results["documents"][0]):
-                meta = results["metadatas"][0][i]
-                title = meta.get('title', 'Act Normativ fara titlu')
-                url = meta.get('source_url', '#')
-                
-                context_blocks.append(f"--- ACT JURIDIC #{i+1} ---\nTitlu: {title}\nConținut: {doc}")
-                sources.append(f"- [{title}]({url})")
+            # Construire context din legile găsite
+            context_text = ""
+            surse = []
+            for idx, point in enumerate(rezultate.points, 1):
+                titlu = point.payload.get("title", "Act Normativ")
+                doc = point.payload.get("document", "")
+                context_text += f"\n--- EXTRACT {idx} [{titlu}] ---\n{doc}\n"
+                if titlu not in surse:
+                    surse.append(titlu)
 
-            context_text = "\n\n".join(context_blocks)
+            # Pasul B: Generare răspuns cu Llama 3.3 70B via Groq
+            system_prompt = """Ești un Asistent Juridic Expert specializat în legislația Republicii Moldova. 
+Misiunea ta este să oferi răspunsuri clare, structurate și precise, bazate STRICT pe textele de lege oferite în CONTEXT.
+Citează actele normative menționate în context.
+Dacă contextul nu conține informații suficiente, precizează asta clar."""
 
-            prompt = f"""Ești un asistent juridic de elită, expert în cadrul legislativ și codurile oficiale ale Republicii Moldova (Codul Civil, Codul Contravențional, Codul Muncii, Codul Penal etc.).
+            user_prompt = f"CONTEXT JURIDIC:\n{context_text}\n\nÎNTREBARE: {prompt}"
 
-ISTORICUL CONVERSAȚIEI ANTERIOARE:
-{history_context if history_context else "Nicio conversație anterioară."}
-
-CONTEXT DIN BAZA DE DATE LEGISLATIVĂ (legis.md):
-{context_text}
-
-ÎNTREBARE UTILIZATOR:
-{user_query}
-
-REGULI MANDATORII PENTRU RĂSPUNS:
-1. Răspunde ÎNTOTDEAUNA în limba în care a fost adresată întrebarea (Română sau Rusă).
-2. Dacă utilizatorul adresează mai multe întrebări numerotate (ex: 1, 2, 3), RĂSPUNDE STRICT STRUCTURAT pe aceleași numere (1, 2, 3), oferind la fiecare punctul juridic direct + articolul din lege.
-3. ARGUMENTARE JURIDICĂ STRICTĂ:
-   - Specifică dacă este vorba de vechiul sau noul Cod Civil al RM (reforma a fost la 1 martie 2019).
-   - Pentru termenii depășiți (cum ar fi moștenitori care vin după mulți ani), precizează că Notarul va respinge cererea și că este necesară o Hotărâre Judecătorească de repunere în termen (instanța de judecată).
-   - Menționează că moștenitorul răspunde pentru datorii strict în limita valorii activelor moștenite.
-4. Citează articole concrete unde este posibil.
-5. Structurează răspunsul clar cu text îngroșat (**bold**) și puncte pentru lizibilitate."""
-
-        try:
-            completion = client.chat.completions.create(
+            response = groq_client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-                top_p=0.2,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.2,
+                max_tokens=1024
             )
-            response_text = completion.choices[0].message.content
-            
-            full_response = f"{response_text}\n\n---\n### 📄 Surse Consultate din Baza de Date:\n" + "\n".join(sources)
-            
-            st.markdown(full_response)
-            
-            st.session_state.messages.append({"role": "user", "content": user_query})
-            st.session_state.messages.append({"role": "assistant", "content": full_response})
 
-        except Exception as e:
-            st.error(f"Eroare la procesarea cererii: {e}")
+            raspuns_final = response.choices[0].message.content
+            
+            # Adăugăm sursele la finalul răspunsului
+            if surse:
+                raspuns_final += "\n\n---\n**📌 Surse / Acte normative identificate:**\n"
+                for s in surse:
+                    raspuns_final += f"* {s}\n"
+
+            st.markdown(raspuns_final)
+            
+            # Salvăm răspunsul în istoric
+            st.session_state.messages.append({"role": "assistant", "content": raspuns_final})
