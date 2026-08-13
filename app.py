@@ -1,12 +1,12 @@
 import os
 import zipfile
-import gdown
+import urllib.request
 import streamlit as st
 import chromadb
 from sentence_transformers import SentenceTransformer
 from groq import Groq
 
-# Oprește scanarea Streamlit pe modulele PyTorch (previne erori FileWatcher)
+# Oprește scanarea Streamlit pe modulele PyTorch (previne WinError 4551)
 os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
 
 # =========================================================
@@ -15,35 +15,35 @@ os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
 st.set_page_config(page_title="Asistent Juridic Moldova", page_icon="⚖️", layout="wide")
 
 # =========================================================
-# 📥 2. DESCĂRCARE AUTOMATĂ BAZĂ DE DATE DIN GOOGLE DRIVE
+# 📥 2. DESCĂRCARE AUTOMATĂ BAZĂ DE DATE DIN HUGGING FACE
 # =========================================================
-# ⚠️ Pune ID-ul tău real din Google Drive între ghilimele la linia de mai jos:
-GOOGLE_DRIVE_FILE_ID = "1S_GpLNWGp9ok5JCKmsPXWt3FcVqsoBO0" 
+# ⚠️ Pune linkul tău direct din Hugging Face între ghilimele:
+DB_URL = "https://huggingface.co/datasets/ChirilOfficial/asistent-juridic-db/resolve/main/chroma_db_FINAL_LOCAL.zip" 
 ZIP_PATH = "chroma_db_FINAL_LOCAL.zip"
 DB_DIR = "chroma_db_FINAL_LOCAL"
 
 if not os.path.exists(DB_DIR):
-    with st.spinner("🔍 Se descarcă baza de date juridică din Google Drive (se execută doar la prima pornire)..."):
+    with st.spinner("🔍 Se descarcă baza de date juridică (se execută doar la prima pornire)..."):
         try:
-            url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_FILE_ID}"
-            gdown.download(url, ZIP_PATH, quiet=False)
+            # Descărcare directă prin urllib (rapidă și fără blocaje)
+            urllib.request.urlretrieve(DB_URL, ZIP_PATH)
             
-            # Dezarhivare baza de date
+            # Dezarhivare
             with zipfile.ZipFile(ZIP_PATH, 'r') as zip_ref:
                 zip_ref.extractall(".")
             
-            # Ștergere arhivă zip pentru economie de spațiu
+            # Ștergere arhivă zip
             if os.path.exists(ZIP_PATH):
                 os.remove(ZIP_PATH)
         except Exception as e:
-            st.error(f"Eroare la descărcarea bazei de date din Google Drive: {e}")
+            st.error(f"Eroare la descărcarea bazei de date: {e}")
             st.stop()
 
 # =========================================================
-# 🔑 3. VERIFICARE CHEIE API GROQ (DIN STREAMLIT SECRETS)
+# 🔑 3. PRELUARE CHEIE API GROQ
 # =========================================================
 if "GROQ_API_KEY" not in st.secrets:
-    st.error("🔑 Cheia GROQ_API_KEY nu a fost găsită în Streamlit Secrets! Asigură-te că ai adăugat-o în panoul Advanced Settings -> Secrets.")
+    st.error("🔑 Cheia GROQ_API_KEY nu a fost găsită în Streamlit Secrets!")
     st.stop()
 
 GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
@@ -72,14 +72,12 @@ client = Groq(api_key=GROQ_API_KEY)
 st.title("⚖️ Asistent Juridic AI - Republica Moldova")
 st.caption("Căutare semantică și analiză inteligentă în baza de date unificată legis.md.")
 
-# Bara Laterală (Meniu)
 with st.sidebar:
     st.header("⚖️ Despre Proiect")
     st.markdown("Acest asistent folosește Inteligența Artificială pentru a analiza baza de date legislativă oficială **legis.md**.")
     st.markdown("---")
-    st.info("💡 **Sfat:** Adresează orice întrebare juridică privind Republica Moldova (în Română sau Rusă).")
+    st.info("💡 **Sfat:** Adresează orice întrebare juridică privind Republica Moldova.")
 
-# Istoric Conversație
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -88,11 +86,10 @@ for message in st.session_state.messages:
         st.markdown(message["content"])
 
 # =========================================================
-# 💬 6. PROCESARE ÎNTREBARE UTILIZATOR
+# 💬 6. PROCESARE ÎNTREBARE
 # =========================================================
 if user_query := st.chat_input("Adresează o întrebare despre legislația RM..."):
 
-    # 1. Pregătire context din istoricul recent
     history_context = ""
     if st.session_state.messages:
         recent_messages = st.session_state.messages[-4:]
@@ -101,15 +98,12 @@ if user_query := st.chat_input("Adresează o întrebare despre legislația RM...
             clean_content = msg["content"].split("---")[0].strip()
             history_context += f"{role_name}: {clean_content}\n"
 
-    # 2. Afișare întrebare utilizator
     with st.chat_message("user"):
         st.markdown(user_query)
 
-    # 3. Căutare în ChromaDB și generare răspuns
     with st.chat_message("assistant"):
         with st.spinner("🔍 Se analizează legislația Republicii Moldova..."):
             
-            # Formatăm interogarea pentru modelul multilingual-e5
             formatted_query = f"query: {user_query} Codul Civil Codul Contraventional Lege Republica Moldova"
             query_vector = embedder.encode([formatted_query], normalize_embeddings=True).tolist()
 
@@ -131,7 +125,6 @@ if user_query := st.chat_input("Adresează o întrebare despre legislația RM...
 
             context_text = "\n\n".join(context_blocks)
 
-            # Prompt-ul pentru modelul LLM
             prompt = f"""Ești un asistent juridic de elită, expert în cadrul legislativ și codurile oficiale ale Republicii Moldova (Codul Civil, Codul Contravențional, Codul Muncii, Codul Penal etc.).
 
 ISTORICUL CONVERSAȚIEI ANTERIOARE:
@@ -153,7 +146,6 @@ REGULI MANDATORII PENTRU RĂSPUNS:
 4. Citează articole concrete unde este posibil.
 5. Structurează răspunsul clar cu text îngroșat (**bold**) și puncte pentru lizibilitate."""
 
-        # Generare apel LLM prin API-ul Groq
         try:
             completion = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
@@ -167,9 +159,8 @@ REGULI MANDATORII PENTRU RĂSPUNS:
             
             st.markdown(full_response)
             
-            # Salvare în starea sesiunii
             st.session_state.messages.append({"role": "user", "content": user_query})
             st.session_state.messages.append({"role": "assistant", "content": full_response})
 
         except Exception as e:
-            st.error(f"Eroare la procesarea cererii de către modelul AI: {e}")
+            st.error(f"Eroare la procesarea cererii: {e}")
