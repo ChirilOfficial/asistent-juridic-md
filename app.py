@@ -21,7 +21,7 @@ st.markdown("Adresează o întrebare juridică. Sistemul caută în peste **1.16
 # Preluăm cheile din Streamlit Secrets sau direct din cod
 QDRANT_URL = st.secrets.get("QDRANT_URL", "https://5ff2f6d0-eba5-423b-b98f-945782950dcc.us-west-2-0.aws.cloud.qdrant.io")
 QDRANT_API_KEY = st.secrets.get("QDRANT_API_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIiwic3ViamVjdCI6ImFwaS1rZXk6NGIyMWQ0ZTgtYmQ1OC00ZWVkLTlhNWItZmE5MTYxNjVhNmIxIn0.XXltHq_43TZZcTuR57V-M_egsOPI_a3OwSre6oDCeuc")
-GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "PUNE_AICI_CHEIA_TA_GROQ_gsk_...")
+GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
 
 # ---------------------------------------------------------
 # 3. Inițializare Modele (se încarcă o singură dată în memorie)
