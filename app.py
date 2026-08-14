@@ -60,12 +60,13 @@ if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concedi
         with st.spinner("🔍 Caut în baza de date juridică și formulez răspunsul..."):
             
             # Pasul A: Căutare semantică în Qdrant Cloud
-            query_vector = embed_model.encode(f"query: {prompt}").tolist()
-            rezultate = qdrant.query_points(
-                collection_name="legis_md",
-                query=query_vector,
-                limit=5
-            )
+            # Adăugăm cuvinte cheie pentru a trage și legile speciale, plus extindem la 8 rezultate
+query_vector = embed_model.encode(f"query: {prompt} Legea SRL Codul Muncii Codul Fiscal procedura").tolist()
+rezultate = qdrant.query_points(
+    collection_name="legis_md",
+    query=query_vector,
+    limit=8
+)
 
             # Construire context din legile găsite
             context_text = ""
