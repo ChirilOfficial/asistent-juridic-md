@@ -58,14 +58,14 @@ if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concedi
     with st.chat_message("assistant"):
         with st.spinner("🔍 Caut în baza de date juridică și formulez răspunsul..."):
             
-            # Pasul A: Căutare semantică în Qdrant Cloud
-            search_text = f"query: {prompt} Legea SRL Codul Muncii Codul Fiscal procedura"
+            # Pasul A: Căutare semantică pură în Qdrant Cloud
+            search_text = f"query: {prompt}"
             query_vector = embed_model.encode(search_text).tolist()
             
             rezultate = qdrant.query_points(
                 collection_name="legis_md",
                 query=query_vector,
-                limit=8
+                limit=10  # Căutăm 10 fragmente relevante
             )
 
             # Construire context din legile găsite
@@ -85,9 +85,10 @@ Misiunea ta este să oferi o ANALIZĂ JURIDICĂ IMPECABILĂ, de o rigoare, acura
 RIGORI ȘI PRINCIPII MANDATORII:
 1. RIGORILE ȘI DETALIUL PROCEDURAL: Analizează cu precizie chirurgicală termenele legale (zile, luni), competențele organelor (ex: judecător de drepturi și libertăți vs. procuror), excepțiile, sancțiunile și nulitățile procedurale.
 2. IERARHIA ACTELOR NORMATIVE (Specialia generalibus derogant): Prioritizează întotdeauna LEGILE SPECIALE și Codurile de profil în raport cu norma generală (ex: Legea SRL sau Codul Muncii au prioritate față de Codul Civil general).
-3. STRICT BAZAT PE CONTEXT: Răspunde EXCLUSIV în baza textelor de lege furnizate în CONTEXT. Nu fabula și nu presupune.
-4. CITARE EXACTĂ: Precizează numărul articolului, alineatul, litera și denumirea exactă a actului normativ.
-5. SINTETIZARE STRUCTURATĂ: Prezintă analiza sub formă de concluzii juridice clare:
+3. ATENȚIE LA FORMA JURIDICĂ: Nu confunda tipurile de persoane juridice (ex: Societatea în Nume Colectiv - SNC vs. Societatea cu Răspundere Limitată - SRL). Verifică atent la ce tip de societate se referă articolul extras și precizează explicit forma juridică pe tot parcursul analizei!
+4. STRICT BAZAT PE CONTEXT: Răspunde EXCLUSIV în baza textelor de lege furnizate în CONTEXT. Nu fabula și nu presupune.
+5. CITARE EXACTĂ: Precizează numărul articolului, alineatul, litera și denumirea exactă a actului normativ.
+6. SINTETIZARE STRUCTURATĂ: Prezintă analiza sub formă de concluzii juridice clare:
    - Cadru Legal & Norme Aplicabile
    - Condiții Procedurale & Termene Stricte
    - Excepții & Riscuri/Nulități
@@ -101,8 +102,8 @@ RIGORI ȘI PRINCIPII MANDATORII:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.2,
-                max_tokens=1024
+                temperature=0.1,  # Redus la 0.1 pentru rigoare maximă și zero halucinații
+                max_tokens=1536
             )
 
             raspuns_final = response.choices[0].message.content
