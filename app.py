@@ -18,13 +18,12 @@ st.markdown("Adresează o întrebare juridică. Sistemul caută în peste **1.16
 # ---------------------------------------------------------
 # 2. Configurare Credențiale
 # ---------------------------------------------------------
-# Preluăm cheile din Streamlit Secrets sau direct din cod
 QDRANT_URL = st.secrets.get("QDRANT_URL", "https://5ff2f6d0-eba5-423b-b98f-945782950dcc.us-west-2-0.aws.cloud.qdrant.io")
 QDRANT_API_KEY = st.secrets.get("QDRANT_API_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIiwic3ViamVjdCI6ImFwaS1rZXk6NGIyMWQ0ZTgtYmQ1OC00ZWVkLTlhNWItZmE5MTYxNjVhNmIxIn0.XXltHq_43TZZcTuR57V-M_egsOPI_a3OwSre6oDCeuc")
 GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
 
 # ---------------------------------------------------------
-# 3. Inițializare Modele (se încarcă o singură dată în memorie)
+# 3. Inițializare Modele
 # ---------------------------------------------------------
 @st.cache_resource
 def init_services():
@@ -60,13 +59,14 @@ if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concedi
         with st.spinner("🔍 Caut în baza de date juridică și formulez răspunsul..."):
             
             # Pasul A: Căutare semantică în Qdrant Cloud
-            # Adăugăm cuvinte cheie pentru a trage și legile speciale, plus extindem la 8 rezultate
-query_vector = embed_model.encode(f"query: {prompt} Legea SRL Codul Muncii Codul Fiscal procedura").tolist()
-rezultate = qdrant.query_points(
-    collection_name="legis_md",
-    query=query_vector,
-    limit=8
-)
+            search_text = f"query: {prompt} Legea SRL Codul Muncii Codul Fiscal procedura"
+            query_vector = embed_model.encode(search_text).tolist()
+            
+            rezultate = qdrant.query_points(
+                collection_name="legis_md",
+                query=query_vector,
+                limit=8
+            )
 
             # Construire context din legile găsite
             context_text = ""
@@ -83,7 +83,7 @@ rezultate = qdrant.query_points(
 Misiunea ta este să oferi o ANALIZĂ JURIDICĂ IMPECABILĂ, de o rigoare, acuratețe și profunzime absolute.
 
 RIGORI ȘI PRINCIPII MANDATORII:
-1. RIGANTA ȘI DETALIUL PROCEDURAL: Analizează cu precizie chirurgicală termenele legale (zile, luni), competențele organelor (ex: judecător de drepturi și libertăți vs. procuror), excepțiile, sancțiunile și nulitățile procedurale.
+1. RIGORILE ȘI DETALIUL PROCEDURAL: Analizează cu precizie chirurgicală termenele legale (zile, luni), competențele organelor (ex: judecător de drepturi și libertăți vs. procuror), excepțiile, sancțiunile și nulitățile procedurale.
 2. IERARHIA ACTELOR NORMATIVE (Specialia generalibus derogant): Prioritizează întotdeauna LEGILE SPECIALE și Codurile de profil în raport cu norma generală (ex: Legea SRL sau Codul Muncii au prioritate față de Codul Civil general).
 3. STRICT BAZAT PE CONTEXT: Răspunde EXCLUSIV în baza textelor de lege furnizate în CONTEXT. Nu fabula și nu presupune.
 4. CITARE EXACTĂ: Precizează numărul articolului, alineatul, litera și denumirea exactă a actului normativ.
