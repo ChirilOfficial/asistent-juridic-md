@@ -1,4 +1,4 @@
-llama-3.3-70b-versatile pai asa si era import streamlit as st
+import streamlit as st
 
 from qdrant_client import QdrantClient
 
