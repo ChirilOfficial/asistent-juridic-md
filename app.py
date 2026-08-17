@@ -56,7 +56,7 @@ if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concedi
     with st.chat_message("assistant"):
         with st.spinner("🔍 Caut în baza de date juridică și formulez răspunsul..."):
             
-            # Pasul A: Căutare semantică
+            # Pasul A: Căutare semantică în Qdrant
             search_text = f"query: {prompt}"
             query_vector = embed_model.encode(search_text).tolist()
             
@@ -76,7 +76,7 @@ if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concedi
                 if titlu not in surse:
                     surse.append(titlu)
 
-            # Pasul B: Generare răspuns cu Llama via Groq
+            # Pasul B: Generare răspuns cu Llama 3.3 70B via Groq
             system_prompt = """Ești un Expert Consultativ Suprem în Dreptul Republicii Moldova (cu nivel de Partener de Casă de Avocatură și Magistrat).
 Misiunea ta este să oferi o ANALIZĂ JURIDICĂ IMPECABILĂ, de o rigoare, acuratețe și profunzime absolute.
 
@@ -94,32 +94,35 @@ RIGORI ȘI PRINCIPII MANDATORII:
 
             user_prompt = f"CONTEXT JURIDIC:\n{context_text}\n\nÎNTREBARE: {prompt}"
 
-            # Încercăm modelul principal, iar dacă e o problemă la Groq facem fallback automat
-            try:
-                model_name = "llama-3.3-70b-versatile"
-                response = groq_client.chat.completions.create(
-                    model=model_name,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    temperature=0.1,
-                    max_tokens=1536
-                )
-            except Exception as e:
-                # Fallback pe varianta rapidă în caz de eroare de model
-                response = groq_client.chat.completions.create(
-                    model="llama-3.1-8b-instant",
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    temperature=0.1,
-                    max_tokens=1536
-                )
+            # Lista modelelor active din consola ta Groq
+            candidate_models = [
+                "llama-3.3-70b",
+                "qwen-2.5-32b",
+                "gpt-oss-120b"
+            ]
 
-            raspuns_final = response.choices[0].message.content
-            
+            response = None
+            for model_id in candidate_models:
+                try:
+                    response = groq_client.chat.completions.create(
+                        model=model_id,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        temperature=0.1,
+                        max_tokens=1536
+                    )
+                    if response:
+                        break
+                except Exception:
+                    continue
+
+            if response:
+                raspuns_final = response.choices[0].message.content
+            else:
+                raspuns_final = "Nu s-a putut genera răspunsul. Vă rugăm să verificați conexiunea cu serviciul Groq."
+
             if surse:
                 raspuns_final += "\n\n---\n**📌 Surse / Acte normative identificate:**\n"
                 for s in surse:
