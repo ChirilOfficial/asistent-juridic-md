@@ -49,26 +49,24 @@ for message in st.session_state.messages:
 # 5. Fluxul Principal (Întrebare -> Căutare -> Generare)
 # ---------------------------------------------------------
 if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concediere?"):
-    # Afișăm întrebarea utilizatorului
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Generăm răspunsul
     with st.chat_message("assistant"):
         with st.spinner("🔍 Caut în baza de date juridică și formulez răspunsul..."):
             
-            # Pasul A: Căutare semantică pură în Qdrant Cloud
+            # Pasul A: Căutare semantică
             search_text = f"query: {prompt}"
             query_vector = embed_model.encode(search_text).tolist()
             
             rezultate = qdrant.query_points(
                 collection_name="legis_md",
                 query=query_vector,
-                limit=10  # Căutăm 10 fragmente relevante
+                limit=10
             )
 
-            # Construire context din legile găsite
+            # Construire context
             context_text = ""
             surse = []
             for idx, point in enumerate(rezultate.points, 1):
@@ -78,14 +76,14 @@ if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concedi
                 if titlu not in surse:
                     surse.append(titlu)
 
-            # Pasul B: Generare răspuns cu Llama 3.3 70B via Groq
+            # Pasul B: Generare răspuns cu Llama via Groq
             system_prompt = """Ești un Expert Consultativ Suprem în Dreptul Republicii Moldova (cu nivel de Partener de Casă de Avocatură și Magistrat).
 Misiunea ta este să oferi o ANALIZĂ JURIDICĂ IMPECABILĂ, de o rigoare, acuratețe și profunzime absolute.
 
 RIGORI ȘI PRINCIPII MANDATORII:
-1. RIGORILE ȘI DETALIUL PROCEDURAL: Analizează cu precizie chirurgicală termenele legale (zile, luni), competențele organelor (ex: judecător de drepturi și libertăți vs. procuror), excepțiile, sancțiunile și nulitățile procedurale.
-2. IERARHIA ACTELOR NORMATIVE (Specialia generalibus derogant): Prioritizează întotdeauna LEGILE SPECIALE și Codurile de profil în raport cu norma generală (ex: Legea SRL sau Codul Muncii au prioritate față de Codul Civil general).
-3. ATENȚIE LA FORMA JURIDICĂ: Nu confunda tipurile de persoane juridice (ex: Societatea în Nume Colectiv - SNC vs. Societatea cu Răspundere Limitată - SRL). Verifică atent la ce tip de societate se referă articolul extras și precizează explicit forma juridică pe tot parcursul analizei!
+1. RIGORILE ȘI DETALIUL PROCEDURAL: Analizează cu precizie chirurgicală termenele legale (zile, luni), competențele organelor, excepțiile, sancțiunile și nulitățile procedurale.
+2. IERARHIA ACTELOR NORMATIVE (Specialia generalibus derogant): Prioritizează întotdeauna LEGILE SPECIALE și Codurile de profil în raport cu norma generală.
+3. ATENȚIE LA FORMA JURIDICĂ: Nu confunda tipurile de persoane juridice (SNC vs. SRL). Verifică atent la ce tip de societate se referă articolul extras!
 4. STRICT BAZAT PE CONTEXT: Răspunde EXCLUSIV în baza textelor de lege furnizate în CONTEXT. Nu fabula și nu presupune.
 5. CITARE EXACTĂ: Precizează numărul articolului, alineatul, litera și denumirea exactă a actului normativ.
 6. SINTETIZARE STRUCTURATĂ: Prezintă analiza sub formă de concluzii juridice clare:
@@ -96,25 +94,36 @@ RIGORI ȘI PRINCIPII MANDATORII:
 
             user_prompt = f"CONTEXT JURIDIC:\n{context_text}\n\nÎNTREBARE: {prompt}"
 
-            response = groq_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.1,  # Redus la 0.1 pentru rigoare maximă și zero halucinații
-                max_tokens=1536
-            )
+            # Încercăm modelul principal, iar dacă e o problemă la Groq facem fallback automat
+            try:
+                model_name = "llama-3.3-70b-versatile"
+                response = groq_client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    temperature=0.1,
+                    max_tokens=1536
+                )
+            except Exception as e:
+                # Fallback pe varianta rapidă în caz de eroare de model
+                response = groq_client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    temperature=0.1,
+                    max_tokens=1536
+                )
 
             raspuns_final = response.choices[0].message.content
             
-            # Adăugăm sursele la finalul răspunsului
             if surse:
                 raspuns_final += "\n\n---\n**📌 Surse / Acte normative identificate:**\n"
                 for s in surse:
                     raspuns_final += f"* {s}\n"
 
             st.markdown(raspuns_final)
-            
-            # Salvăm răspunsul în istoric
             st.session_state.messages.append({"role": "assistant", "content": raspuns_final})
