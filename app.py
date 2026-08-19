@@ -153,11 +153,10 @@ CAPITOLUL VIII. REGULI IMPERATIVE DE LIMBĂ ȘI STIL
             user_prompt = f"CONTEXT JURIDIC:\n{context_text}\n\nÎNTREBARE: {prompt}"
 
             # Modele Groq active cu denumiri exacte
+            # Modele Groq active și suportate
             candidate_models = [
                 "llama-3.3-70b-versatile",
-                "llama-3.1-8b-instant",
-                "llama3-70b-8192",
-                "mixtral-8x7b-32768"
+                "llama-3.1-8b-instant"
             ]
 
             response = None
