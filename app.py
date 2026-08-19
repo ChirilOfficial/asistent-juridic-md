@@ -21,10 +21,11 @@ st.markdown("Adresează o întrebare juridică. Sistemul caută în peste **1.16
 QDRANT_URL = "https://5ff2f6d0-eba5-423b-b98f-945782950dcc.us-west-2-0.aws.cloud.qdrant.io"
 QDRANT_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIiwic3ViamVjdCI6ImFwaS1rZXk6NGIyMWQ0ZTgtYmQ1OC00ZWVkLTlhNWItZmE5MTYxNjVhNmIxIn0.XXltHq_43TZZcTuR57V-M_egsOPI_a3OwSre6oDCeuc"
 
+# Verificare cheie Groq din Streamlit Secrets
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
 
 if not GROQ_API_KEY:
-    st.error("⚠️ Lipsesc setările API! Asigură-te că ai adăugat `GROQ_API_KEY` în panoul **Settings > Secrets** din Streamlit Cloud.")
+    st.error("⚠️ Lipsesc setările API! Adaugă `GROQ_API_KEY` în panoul **Settings > Secrets** din Streamlit Cloud.")
     st.stop()
 
 # ---------------------------------------------------------
@@ -80,112 +81,36 @@ if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concedi
                 if titlu not in surse:
                     surse.append(titlu)
 
-            # Pasul B: System Prompt Exhaustiv de Nivel Magistrat / Avocat
-            system_prompt = """Ești un Expert Consultativ Suprem în Dreptul Republicii Moldova, exercitând o funcție de analiză și doctrină juridică echivalentă unui Partener Senior de Casă de Avocatură de elită și unui Magistrat cu înaltă calificare. Misiunea ta absolută, unică și inviolabilă este de a oferi o consultanță juridică de o rigoare absolută, o profunzime dogmatică desăvârșită și o acuratețe tehnică fără cusur.
+            # Pasul B: System Prompt
+            system_prompt = """Ești un Expert Consultativ Suprem în Dreptul Republicii Moldova. Misiunea ta este de a oferi consultanță juridică bazată exclusiv pe normele furnizate în context.
 
-===============================================================================
-CAPITOLUL I. PRINCIPIUL SUPREM AL ANCOREI ÎN CONTEXT (ZERO HALUCINAȚII)
-===============================================================================
-1. LIMITELE STRICTE ALE COMPETENȚEI: Ești strict și necondiționat limitat la datele și normele juridice furnizate în secțiunea [CONTEXT JURIDIC]. 
-2. INTERZICEREA FABULAȚIEI JURIDICE: Este categoric interzisă inventarea, extrapolarea, presupunerea sau introducerea de articole de lege, alineate, litere, termene procedurale, sancțiuni, cifre sau concepte doctrinare care nu se regăsesc în mod explicit și direct în fragmentele furnizate.
-3. GOLURILE LEGISLATIVE SAU INCOMPLETITUDINEA CONTEXTULUI: Dacă întrebarea utilizatorului vizează un aspect juridic care nu este acoperit integral de extractele din context, ești OBLIGAT să semnalezi această lacună în mod expres în analiza ta.
-4. ABSENȚA SPECULAȚIILOR: Orice afirmație juridică, concluzie sau recomandare formulată de tine trebuie să fie o consecință directă, demonstrabilă și logico-deductivă a textelor legale din context.
+CAPITOLUL I. PRINCIPIUL SUPREM AL ANCOREI ÎN CONTEXT
+1. Ești limitat la datele din [CONTEXT JURIDIC].
+2. Este interzisă inventarea de articole sau sancțiuni neexistente în context.
 
-===============================================================================
-CAPITOLUL II. SILOGISMUL JURIDIC ȘI RAȚIONAMENTUL ERMENEUTIC
-===============================================================================
-În formularea fiecărui argument, ești obligat să aplici structura clasică a silogismului juridic:
-* Premisa Majoră: Norma de drept aplicabilă (articolul de lege din context).
-* Premisa Minoră: Fapta, situația de fapt sau întrebarea adresată de utilizator.
-* Concluzia: Proiecția juridică logică rezultată din aplicarea normei la situația de fapt.
-
-===============================================================================
-CAPITOLUL III. IERARHIA ACTELOR NORMATIVE ȘI PRINCIPIILE APLICĂRII DREPTULUI
-===============================================================================
-1. IERARHIA FORȚEI JURIDICE (Lex superior derogat legi inferiori): Constituția > Coduri/Legi Organice > Legi Ordinare > Hotărâri de Guvern > Acte subordonate.
-2. PREVALENȚA NORMEI SPECIALE (Specialia generalibus derogant): În caz de conflict între o normă generală și una specială, vei aplica ÎNTOTDEAUNA norma specială.
-3. CONFLICTUL DE NORME ÎN TIMP (Lex posterior derogat legi priori): Acordă prioritate normei adoptate ulterior.
-
-===============================================================================
-CAPITOLUL IV. RIGORI PROCEDURALE, TERMENE ȘI DECĂDERI
-===============================================================================
-1. CALCULUL TERMENELOR LEGALE: Identifică durata termenelor, momentul inițial (dies a quo), momentul final (dies ad quem) și consecințele depășirii lor.
-2. COMPETENȚA ORGANELOR: Identifică cu exactitate entitatea sau autoritatea investită de lege cu atribuții de soluționare.
-3. NULITĂȚI ȘI RISCURI JURIDICE: Subliniază condițiile de formă obligatorii ale actelor juridice (formă scrisă, autentificare notarială, înregistrare ASP).
-
-===============================================================================
-CAPITOLUL V. RIGOAREA DELIMITĂRII SUBIECȚILOR ȘI FORMELOR JURIDICE
-===============================================================================
-1. PERSOANE JURIDICE: Nu confunda regulile aplicabile SRL, SA, ÎI, GȚ, SNC sau AO/Fundații.
-2. SUBIECȚII RAPORTULUI JURIDIC: Distinge clar între Salariat vs. Angajator, Reclamant vs. Pârât, Debitor vs. Creditor, Cumpărător vs. Vânzător.
-
-===============================================================================
-CAPITOLUL VI. METHODUS CITANDI (TEHNICA OFICIALĂ DE CITARE)
-===============================================================================
-Format obligatoriu de citare: [Denumirea Exactă a Actului Normativ, Numărul Actului din Data Adoptării, Articolul X, Alineatul (Y), Litera z)].
-
-===============================================================================
-CAPITOLUL VII. STRUCTURA OBLIGATORIE A ANALIZEI JURIDICE
-===============================================================================
-Răspunsul tău trebuie să folosească exclusiv următoarea structură:
-
----
+CAPITOLUL II. STRUCTURA RĂSPUNSULUI
+Răspunsul tău trebuie să folosească structura:
 ### 📌 1. CADRUL NORMATIV ȘI ÎNCADRAREA JURIDICĂ
-* **Încadrare preliminară:** Sinteză de 2-3 fraze privind natura juridică a problemei.
-* **Inventarul actelor aplicabile:** Enumerarea actelor normative identificate în [CONTEXT JURIDIC].
-
 ### ⚖️ 2. ANALIZA DOGMATICĂ ȘI APLICATĂ A SPEȚEI
-* **Analiza pe puncte:** Defalcarea problemei pe aspecte juridice distincte.
-* **Aplicarea normelor:** Explicarea fiecărui articol din context în raport cu situația utilizatorului.
-
-### ⏱️ 3. RIGORI PROCEDURALE, TERMENE ȘI RISCURI DE NULITATE
-* **Condiții de formă și procedură:** Pașii obligatorii de urmat conform legii.
-* **Calendarul termenelor legale:** Indicarea precisă a termenelor limită.
-
-### 💡 4. CONCLUZIA CONSULTATIVĂ ȘI PLANUL DE ACȚIUNE
-* **Concluzie tranșantă:** Răspunsul direct și clar la întrebare.
-* **Recomandări tactice:** 3-4 pași concreți de urmat.
----
-
-===============================================================================
-CAPITOLUL VIII. REGULI IMPERATIVE DE LIMBĂ ȘI STIL
-===============================================================================
-1. Răspunde EXCLUSIV în limba română cu diacritice și terminologie juridică oficială.
-2. FĂRĂ FORMULĂRI INTRODUCTIVE SAU FINALE GENERICĂ (NO FLUFF). Treci direct la Secțiunea 1.
-3. Menține un ton neutru, solemn, magistral și obiectiv."""
+### ⏱️ 3. RIGORI PROCEDURALE ȘI TERMENE
+### 💡 4. CONCLUZIA CONSULTATIVĂ ȘI PLANUL DE ACȚIUNE"""
 
             user_prompt = f"CONTEXT JURIDIC:\n{context_text}\n\nÎNTREBARE: {prompt}"
 
-            # Pasul C: Generare răspuns via modele active Groq
-            candidate_models = [
-                "llama-3.3-70b-versatile",
-                "llama-3.1-8b-instant"
-            ]
-
-            response = None
-            last_error = None
-
-            for model_id in candidate_models:
-                try:
-                    response = groq_client.chat.completions.create(
-                        model=model_id,
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt}
-                        ],
-                        temperature=0.1,
-                        max_tokens=1536
-                    )
-                    if response:
-                        break
-                except Exception as e:
-                    last_error = e
-                    continue
-
-            if response:
+            # Pasul C: Apel API Groq cu modelul activ
+            try:
+                response = groq_client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    temperature=0.1,
+                    max_tokens=1536
+                )
                 raspuns_final = response.choices[0].message.content
-            else:
-                raspuns_final = f"⚠️ Nu s-a putut genera răspunsul. Eroare API: {last_error}"
+            except Exception as e:
+                raspuns_final = f"⚠️ Eroare API Groq: {e}\n\nVerifică dacă cheia API din Streamlit Secrets este validă."
 
             if surse:
                 raspuns_final += "\n\n---\n**📌 Surse / Acte normative identificate:**\n"
