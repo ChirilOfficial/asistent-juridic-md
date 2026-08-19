@@ -21,23 +21,26 @@ st.markdown("Adresează o întrebare juridică. Sistemul caută în peste **1.16
 QDRANT_URL = "https://5ff2f6d0-eba5-423b-b98f-945782950dcc.us-west-2-0.aws.cloud.qdrant.io"
 QDRANT_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIiwic3ViamVjdCI6ImFwaS1rZXk6NGIyMWQ0ZTgtYmQ1OC00ZWVkLTlhNWItZmE5MTYxNjVhNmIxIn0.XXltHq_43TZZcTuR57V-M_egsOPI_a3OwSre6oDCeuc"
 
+# Preluare cheie din Secrets
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
 
 if not GROQ_API_KEY:
-    st.error("⚠️ Lipsesc setările API! Adaugă `GROQ_API_KEY` în panoul Settings > Secrets din Streamlit Cloud.")
+    st.error("⚠️ Lipsesc setările API! Adaugă `GROQ_API_KEY` în Settings > Secrets în Streamlit Cloud.")
     st.stop()
 
 # ---------------------------------------------------------
-# 3. Inițializare Servicii
+# 3. Inițializare Servicii (Separat pentru Groq fără CACHE)
 # ---------------------------------------------------------
 @st.cache_resource
-def init_services():
+def load_qdrant_and_embed():
     embed_model = SentenceTransformer("intfloat/multilingual-e5-small")
     qdrant = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY, prefer_grpc=False)
-    groq_client = Groq(api_key=GROQ_API_KEY)
-    return embed_model, qdrant, groq_client
+    return embed_model, qdrant
 
-embed_model, qdrant, groq_client = init_services()
+embed_model, qdrant = load_qdrant_and_embed()
+
+# Inițializare directă FĂRĂ cache pentru a forța citirea noii chei API
+groq_client = Groq(api_key=GROQ_API_KEY)
 
 # ---------------------------------------------------------
 # 4. Istoric Chat
@@ -60,7 +63,7 @@ if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concedi
     with st.chat_message("assistant"):
         with st.spinner("🔍 Caut în baza de date juridică și formulez răspunsul..."):
             
-            # Căutare în Qdrant
+            # Pasul A: Căutare semantică în Qdrant
             search_text = f"query: {prompt}"
             query_vector = embed_model.encode(search_text).tolist()
             
@@ -70,6 +73,7 @@ if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concedi
                 limit=10
             )
 
+            # Construire context normativ
             context_text = ""
             surse = []
             for idx, point in enumerate(rezultate.points, 1):
@@ -79,6 +83,7 @@ if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concedi
                 if titlu not in surse:
                     surse.append(titlu)
 
+            # Pasul B: System Prompt
             system_prompt = """Ești un Expert Consultativ Suprem în Dreptul Republicii Moldova. Misiunea ta este de a oferi consultanță juridică bazată exclusiv pe normele furnizate în context.
 
 CAPITOLUL I. PRINCIPIUL SUPREM AL ANCOREI ÎN CONTEXT
@@ -94,19 +99,10 @@ Răspunsul tău trebuie să folosească structura:
 
             user_prompt = f"CONTEXT JURIDIC:\n{context_text}\n\nÎNTREBARE: {prompt}"
 
-            # Selectare automată a modelului disponibil
+            # Pasul C: Apel direct către Llama 3.3 70B
             try:
-                models_data = groq_client.models.list().data
-                available_ids = [m.id for m in models_data]
-                
-                # Căutăm Llama 3.3 / 3.1 sau luăm primul model din listă
-                selected_model = next(
-                    (m for m in available_ids if "llama-3.3" in m or "llama-3.1" in m),
-                    available_ids[0] if available_ids else "llama-3.3-70b-versatile"
-                )
-
                 response = groq_client.chat.completions.create(
-                    model=selected_model,
+                    model="llama-3.3-70b-versatile",
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
@@ -116,7 +112,7 @@ Răspunsul tău trebuie să folosească structura:
                 )
                 raspuns_final = response.choices[0].message.content
             except Exception as e:
-                raspuns_final = f"⚠️ Eroare la generare: {e}"
+                raspuns_final = f"⚠️ Eroare API Groq: {e}"
 
             if surse:
                 raspuns_final += "\n\n---\n**📌 Surse / Acte normative identificate:**\n"
