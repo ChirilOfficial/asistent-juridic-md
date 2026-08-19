@@ -16,15 +16,19 @@ st.title("⚖️ Asistent Juridic AI - Republica Moldova")
 st.markdown("Adresează o întrebare juridică. Sistemul caută în peste **1.16 milioane de articole de lege** și formulează un răspuns argumentat.")
 
 # ---------------------------------------------------------
-# 2. Configurare Credențiale (Streamlit Cloud Secrets)
+# 2. Configurare Credențiale (Streamlit Secrets)
 # ---------------------------------------------------------
 QDRANT_URL = "https://5ff2f6d0-eba5-423b-b98f-945782950dcc.us-west-2-0.aws.cloud.qdrant.io"
 QDRANT_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIiwic3ViamVjdCI6ImFwaS1rZXk6NGIyMWQ0ZTgtYmQ1OC00ZWVkLTlhNWItZmE5MTYxNjVhNmIxIn0.XXltHq_43TZZcTuR57V-M_egsOPI_a3OwSre6oDCeuc"
 
-GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
+GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
+
+if not GROQ_API_KEY:
+    st.error("⚠️ Lipsesc setările API! Asigură-te că ai adăugat `GROQ_API_KEY` în panoul **Settings > Secrets** din Streamlit Cloud.")
+    st.stop()
 
 # ---------------------------------------------------------
-# 3. Inițializare Modele
+# 3. Inițializare Servicii
 # ---------------------------------------------------------
 @st.cache_resource
 def init_services():
@@ -46,7 +50,7 @@ for message in st.session_state.messages:
         st.markdown(message["content"])
 
 # ---------------------------------------------------------
-# 5. Fluxul Principal (Întrebare -> Căutare -> Generare)
+# 5. Flux Principal (Căutare Qdrant + Generare Groq)
 # ---------------------------------------------------------
 if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concediere?"):
     st.session_state.messages.append({"role": "user", "content": prompt})
@@ -66,7 +70,7 @@ if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concedi
                 limit=10
             )
 
-            # Construire context
+            # Construire context normativ
             context_text = ""
             surse = []
             for idx, point in enumerate(rezultate.points, 1):
@@ -76,7 +80,7 @@ if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concedi
                 if titlu not in surse:
                     surse.append(titlu)
 
-            # Pasul B: System Prompt Exhaustiv
+            # Pasul B: System Prompt Exhaustiv de Nivel Magistrat / Avocat
             system_prompt = """Ești un Expert Consultativ Suprem în Dreptul Republicii Moldova, exercitând o funcție de analiză și doctrină juridică echivalentă unui Partener Senior de Casă de Avocatură de elită și unui Magistrat cu înaltă calificare. Misiunea ta absolută, unică și inviolabilă este de a oferi o consultanță juridică de o rigoare absolută, o profunzime dogmatică desăvârșită și o acuratețe tehnică fără cusur.
 
 ===============================================================================
@@ -152,8 +156,7 @@ CAPITOLUL VIII. REGULI IMPERATIVE DE LIMBĂ ȘI STIL
 
             user_prompt = f"CONTEXT JURIDIC:\n{context_text}\n\nÎNTREBARE: {prompt}"
 
-            # Modele Groq active cu denumiri exacte
-            # Modele Groq active și suportate
+            # Pasul C: Generare răspuns via modele active Groq
             candidate_models = [
                 "llama-3.3-70b-versatile",
                 "llama-3.1-8b-instant"
@@ -182,7 +185,7 @@ CAPITOLUL VIII. REGULI IMPERATIVE DE LIMBĂ ȘI STIL
             if response:
                 raspuns_final = response.choices[0].message.content
             else:
-                raspuns_final = f"Nu s-a putut genera răspunsul. Eroare API: {last_error}"
+                raspuns_final = f"⚠️ Nu s-a putut genera răspunsul. Eroare API: {last_error}"
 
             if surse:
                 raspuns_final += "\n\n---\n**📌 Surse / Acte normative identificate:**\n"
