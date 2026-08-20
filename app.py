@@ -16,12 +16,17 @@ st.title("⚖️ Asistent Juridic AI - Republica Moldova")
 st.markdown("Adresează o întrebare juridică. Sistemul caută în peste **1.16 milioane de articole de lege** și formulează un răspuns argumentat.")
 
 # ---------------------------------------------------------
-# 2. Credențiale
+# 2. Preluare și Verificare Cheie API
 # ---------------------------------------------------------
-QDRANT_URL = "https://5ff2f6d0-eba5-423b-b98f-945782950dcc.us-west-2-0.aws.cloud.qdrant.io"
-QDRANT_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIiwic3ViamVjdCI6ImFwaS1rZXk6NGIyMWQ0ZTgtYmQ1OC00ZWVkLTlhNWItZmE5MTYxNjVhNmIxIn0.XXltHq_43TZZcTuR57V-M_egsOPI_a3OwSre6oDCeuc"
-
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "").strip()
+
+# Diagnosticare vizuală în Sidebar
+with st.sidebar:
+    st.header("⚙️ Status Conexiune")
+    if GROQ_API_KEY:
+        st.success(f"Cheie detectată: `{GROQ_API_KEY[:7]}...`")
+    else:
+        st.error("❌ GROQ_API_KEY nu a fost găsită în Secrets!")
 
 if not GROQ_API_KEY:
     st.error("⚠️ Lipsesc setările API! Adaugă `GROQ_API_KEY` în Settings > Secrets în Streamlit Cloud.")
@@ -30,6 +35,9 @@ if not GROQ_API_KEY:
 # ---------------------------------------------------------
 # 3. Inițializare Servicii
 # ---------------------------------------------------------
+QDRANT_URL = "https://5ff2f6d0-eba5-423b-b98f-945782950dcc.us-west-2-0.aws.cloud.qdrant.io"
+QDRANT_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIiwic3ViamVjdCI6ImFwaS1rZXk6NGIyMWQ0ZTgtYmQ1OC00ZWVkLTlhNWItZmE5MTYxNjVhNmIxIn0.XXltHq_43TZZcTuR57V-M_egsOPI_a3OwSre6oDCeuc"
+
 @st.cache_resource
 def load_qdrant_and_embed():
     embed_model = SentenceTransformer("intfloat/multilingual-e5-small")
@@ -95,34 +103,20 @@ Răspunsul tău trebuie să folosească structura:
 
             user_prompt = f"CONTEXT JURIDIC:\n{context_text}\n\nÎNTREBARE: {prompt}"
 
-            # Modele active și susținute de Groq
-            candidate_models = [
-                "llama-3.3-70b-versatile",
-                "llama-3.1-8b-instant"
-            ]
-
-            raspuns_final = None
-            last_error = None
-
-            for model_name in candidate_models:
-                try:
-                    response = groq_client.chat.completions.create(
-                        model=model_name,
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt}
-                        ],
-                        temperature=0.1,
-                        max_tokens=1536
-                    )
-                    raspuns_final = response.choices[0].message.content
-                    break
-                except Exception as err:
-                    last_error = err
-                    continue
-
-            if not raspuns_final:
-                raspuns_final = f"⚠️ Eroare la apelarea modelelor Groq: {last_error}"
+            # Apel Groq cu Llama 3.3 70B
+            try:
+                response = groq_client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    temperature=0.1,
+                    max_tokens=1536
+                )
+                raspuns_final = response.choices[0].message.content
+            except Exception as err:
+                raspuns_final = f"⚠️ Eroare API Groq: {err}"
 
             if surse:
                 raspuns_final += "\n\n---\n**📌 Surse / Acte normative identificate:**\n"
