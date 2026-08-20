@@ -4,7 +4,7 @@ from sentence_transformers import SentenceTransformer
 from groq import Groq
 
 # ---------------------------------------------------------
-# 1. Configurare Pagină Web
+# 1. Configurare Pagină Web (Afișaj curat pentru utilizatori)
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="Asistent Juridic Moldova", 
@@ -16,37 +16,54 @@ st.title("⚖️ Asistent Juridic AI - Republica Moldova")
 st.markdown("Adresează o întrebare juridică. Sistemul caută în peste **1.16 milioane de articole de lege** și formulează un răspuns argumentat.")
 
 # ---------------------------------------------------------
-# 2. Preluare și Verificare Cheie API
+# 2. Configurare Credențiale și Client Groq
 # ---------------------------------------------------------
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "").strip()
 
 if not GROQ_API_KEY:
-    st.error("⚠️ Lipsesc setările API! Adaugă `GROQ_API_KEY` în Settings > Secrets în Streamlit Cloud.")
+    st.error("⚠️ Serviciul este temporar indisponibil. Reîncercați mai târziu.")
     st.stop()
 
 groq_client = Groq(api_key=GROQ_API_KEY)
 
-# Extragere dinamică modele din contul Groq
-available_models = []
-try:
-    models_data = groq_client.models.list().data
-    available_models = [m.id for m in models_data]
-except Exception as e:
-    st.sidebar.error(f"Eroare la citirea modelelor: {e}")
+# ---------------------------------------------------------
+# 3. Selectare automată și silențioasă a celui mai bun model
+# ---------------------------------------------------------
+@st.cache_data(ttl=3600)
+def get_best_available_model():
+    # Ordinea de prioritate pentru performanță maximă pe text juridic
+    preferred_priority = [
+        "llama-3.3-70b-versatile",
+        "openai/gpt-oss-128b",
+        "qwen/qwen3.5-27b",
+        "llama-3.1-8b-instant"
+    ]
+    try:
+        models_data = groq_client.models.list().data
+        available_ids = [m.id for m in models_data]
+        
+        # 1. Alege primul model din lista de preferințe care există în cont
+        for pref in preferred_priority:
+            if pref in available_ids:
+                return pref
+                
+        # 2. Fallback: primul model de chat valid ce nu e guard/whisper/compound
+        valid_chat_models = [
+            m for m in available_ids 
+            if not any(x in m.lower() for x in ["whisper", "guard", "safeguard", "compound"])
+        ]
+        if valid_chat_models:
+            return valid_chat_models[0]
+            
+    except Exception:
+        pass
+        
+    return "llama-3.3-70b-versatile"
 
-# Meniul din stânga pentru diagnostic exact
-with st.sidebar:
-    st.header("⚙️ Status Conexiune")
-    st.success(f"Cheie detectată: `{GROQ_API_KEY[:7]}...`")
-    st.subheader("Modele Groq disponibile în cont:")
-    if available_models:
-        for m in available_models:
-            st.code(m, language="text")
-    else:
-        st.warning("Nu s-a putut încărca lista de modele.")
+BEST_MODEL = get_best_available_model()
 
 # ---------------------------------------------------------
-# 3. Inițializare Qdrant & Embeddings
+# 4. Inițializare Qdrant & Embeddings
 # ---------------------------------------------------------
 QDRANT_URL = "https://5ff2f6d0-eba5-423b-b98f-945782950dcc.us-west-2-0.aws.cloud.qdrant.io"
 QDRANT_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIiwic3ViamVjdCI6ImFwaS1rZXk6NGIyMWQ0ZTgtYmQ1OC00ZWVkLTlhNWItZmE5MTYxNjVhNmIxIn0.XXltHq_43TZZcTuR57V-M_egsOPI_a3OwSre6oDCeuc"
@@ -60,7 +77,7 @@ def load_qdrant_and_embed():
 embed_model, qdrant = load_qdrant_and_embed()
 
 # ---------------------------------------------------------
-# 4. Istoric Chat
+# 5. Istoric Chat
 # ---------------------------------------------------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -70,7 +87,7 @@ for message in st.session_state.messages:
         st.markdown(message["content"])
 
 # ---------------------------------------------------------
-# 5. Flux Principal
+# 6. Flux Principal
 # ---------------------------------------------------------
 if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concediere?"):
     st.session_state.messages.append({"role": "user", "content": prompt})
@@ -80,7 +97,7 @@ if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concedi
     with st.chat_message("assistant"):
         with st.spinner("🔍 Caut în baza de date juridică și formulez răspunsul..."):
             
-            # Pasul A: Căutare semantică în Qdrant
+            # Căutare semantică în Qdrant
             search_text = f"query: {prompt}"
             query_vector = embed_model.encode(search_text).tolist()
             
@@ -99,7 +116,7 @@ if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concedi
                 if titlu not in surse:
                     surse.append(titlu)
 
-            # Pasul B: System Prompt
+            # System Prompt profesional
             system_prompt = """Ești un Expert Consultativ Suprem în Dreptul Republicii Moldova. Misiunea ta este de a oferi consultanță juridică bazată exclusiv pe normele furnizate în context.
 
 CAPITOLUL I. PRINCIPIUL SUPREM AL ANCOREI ÎN CONTEXT
@@ -115,24 +132,19 @@ Răspunsul tău trebuie să folosească structura:
 
             user_prompt = f"CONTEXT JURIDIC:\n{context_text}\n\nÎNTREBARE: {prompt}"
 
-            # Pasul C: Utilizare automată a primului model disponibil în cont
-            if not available_models:
-                raspuns_final = "⚠️ Nu s-a găsit niciun model accesibil pe acest cont Groq."
-            else:
-                model_de_folosit = available_models[0]
-                try:
-                    response = groq_client.chat.completions.create(
-                        model=model_de_folosit,
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt}
-                        ],
-                        temperature=0.1,
-                        max_tokens=1536
-                    )
-                    raspuns_final = response.choices[0].message.content
-                except Exception as err:
-                    raspuns_final = f"⚠️ Eroare la generare cu modelul `{model_de_folosit}`: {err}"
+            try:
+                response = groq_client.chat.completions.create(
+                    model=BEST_MODEL,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    temperature=0.1,
+                    max_tokens=1200
+                )
+                raspuns_final = response.choices[0].message.content
+            except Exception as err:
+                raspuns_final = "⚠️ A apărut o eroare la generarea răspunsului. Vă rugăm să reîncercați."
 
             if surse:
                 raspuns_final += "\n\n---\n**📌 Surse / Acte normative identificate:**\n"
