@@ -21,15 +21,14 @@ st.markdown("Adresează o întrebare juridică. Sistemul caută în peste **1.16
 QDRANT_URL = "https://5ff2f6d0-eba5-423b-b98f-945782950dcc.us-west-2-0.aws.cloud.qdrant.io"
 QDRANT_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIiwic3ViamVjdCI6ImFwaS1rZXk6NGIyMWQ0ZTgtYmQ1OC00ZWVkLTlhNWItZmE5MTYxNjVhNmIxIn0.XXltHq_43TZZcTuR57V-M_egsOPI_a3OwSre6oDCeuc"
 
-# Preluare cheie din Secrets
-GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
+GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "").strip()
 
 if not GROQ_API_KEY:
     st.error("⚠️ Lipsesc setările API! Adaugă `GROQ_API_KEY` în Settings > Secrets în Streamlit Cloud.")
     st.stop()
 
 # ---------------------------------------------------------
-# 3. Inițializare Servicii (Separat pentru Groq fără CACHE)
+# 3. Inițializare Servicii
 # ---------------------------------------------------------
 @st.cache_resource
 def load_qdrant_and_embed():
@@ -38,8 +37,6 @@ def load_qdrant_and_embed():
     return embed_model, qdrant
 
 embed_model, qdrant = load_qdrant_and_embed()
-
-# Inițializare directă FĂRĂ cache pentru a forța citirea noii chei API
 groq_client = Groq(api_key=GROQ_API_KEY)
 
 # ---------------------------------------------------------
@@ -63,7 +60,7 @@ if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concedi
     with st.chat_message("assistant"):
         with st.spinner("🔍 Caut în baza de date juridică și formulez răspunsul..."):
             
-            # Pasul A: Căutare semantică în Qdrant
+            # Căutare semantică în Qdrant
             search_text = f"query: {prompt}"
             query_vector = embed_model.encode(search_text).tolist()
             
@@ -73,7 +70,6 @@ if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concedi
                 limit=10
             )
 
-            # Construire context normativ
             context_text = ""
             surse = []
             for idx, point in enumerate(rezultate.points, 1):
@@ -83,7 +79,7 @@ if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concedi
                 if titlu not in surse:
                     surse.append(titlu)
 
-            # Pasul B: System Prompt
+            # System Prompt
             system_prompt = """Ești un Expert Consultativ Suprem în Dreptul Republicii Moldova. Misiunea ta este de a oferi consultanță juridică bazată exclusiv pe normele furnizate în context.
 
 CAPITOLUL I. PRINCIPIUL SUPREM AL ANCOREI ÎN CONTEXT
@@ -99,20 +95,37 @@ Răspunsul tău trebuie să folosească structura:
 
             user_prompt = f"CONTEXT JURIDIC:\n{context_text}\n\nÎNTREBARE: {prompt}"
 
-            # Pasul C: Apel direct către Llama 3.3 70B
-            try:
-                response = groq_client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    temperature=0.1,
-                    max_tokens=1536
-                )
-                raspuns_final = response.choices[0].message.content
-            except Exception as e:
-                raspuns_final = f"⚠️ Eroare API Groq: {e}"
+            # Încercare succesivă pe modele disponibile (Fallback Loop)
+            candidate_models = [
+                "llama-3.3-70b-versatile",
+                "llama-3.1-8b-instant",
+                "llama3-70b-8192",
+                "llama3-8b-8192",
+                "mixtral-8x7b-32768"
+            ]
+
+            raspuns_final = None
+            last_error = None
+
+            for model_name in candidate_models:
+                try:
+                    response = groq_client.chat.completions.create(
+                        model=model_name,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        temperature=0.1,
+                        max_tokens=1536
+                    )
+                    raspuns_final = response.choices[0].message.content
+                    break
+                except Exception as err:
+                    last_error = err
+                    continue
+
+            if not raspuns_final:
+                raspuns_final = f"⚠️ Eroare la apelarea modelelor Groq: {last_error}"
 
             if surse:
                 raspuns_final += "\n\n---\n**📌 Surse / Acte normative identificate:**\n"
