@@ -95,13 +95,10 @@ Răspunsul tău trebuie să folosească structura:
 
             user_prompt = f"CONTEXT JURIDIC:\n{context_text}\n\nÎNTREBARE: {prompt}"
 
-            # Încercare succesivă pe modele disponibile (Fallback Loop)
+            # Modele active și susținute de Groq
             candidate_models = [
                 "llama-3.3-70b-versatile",
-                "llama-3.1-8b-instant",
-                "llama3-70b-8192",
-                "llama3-8b-8192",
-                "mixtral-8x7b-32768"
+                "llama-3.1-8b-instant"
             ]
 
             raspuns_final = None
