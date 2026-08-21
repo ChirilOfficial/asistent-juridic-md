@@ -26,7 +26,7 @@ if not GROQ_API_KEY:
 
 groq_client = Groq(api_key=GROQ_API_KEY)
 
-# Lista modelelor active de text (fără unelte interne/guard)
+# Ordinea de prioritate a modelelor de text
 CANDIDATE_MODELS = [
     "llama-3.3-70b-versatile",
     "qwen/qwen3.5-27b",
@@ -73,10 +73,11 @@ if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concedi
             search_text = f"query: {prompt}"
             query_vector = embed_model.encode(search_text).tolist()
             
+            # Selectăm cele mai relevante 5 texte complete (fără tăieturi)
             rezultate = qdrant.query_points(
                 collection_name="legis_md",
                 query=query_vector,
-                limit=8
+                limit=5
             )
 
             context_text = ""
@@ -85,9 +86,8 @@ if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concedi
                 titlu = point.payload.get("title", "Act Normativ")
                 doc = point.payload.get("document", "")
                 
-                # Scurtare documente lungi pentru evitarea depășirii limitei de tokeni
-                truncated_doc = doc[:1000] + "..." if len(doc) > 1000 else doc
-                context_text += f"\n--- EXTRACT {idx} [{titlu}] ---\n{truncated_doc}\n"
+                # Includem textul integral al articolului/extrasului
+                context_text += f"\n--- EXTRACT {idx} [{titlu}] ---\n{doc}\n"
                 
                 if titlu not in surse:
                     surse.append(titlu)
@@ -107,7 +107,7 @@ Răspunsul tău trebuie să folosească structura:
 
             user_prompt = f"CONTEXT JURIDIC:\n{context_text}\n\nÎNTREBARE: {prompt}"
 
-            # Execuție cu fallback între modele
+            # Încercăm modelele pe rând
             raspuns_final = None
             errors_log = []
 
@@ -120,7 +120,7 @@ Răspunsul tău trebuie să folosească structura:
                             {"role": "user", "content": user_prompt}
                         ],
                         temperature=0.1,
-                        max_tokens=1000
+                        max_tokens=1500
                     )
                     raspuns_final = response.choices[0].message.content
                     break
