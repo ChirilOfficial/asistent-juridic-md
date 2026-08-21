@@ -30,7 +30,11 @@ def init_services():
     embed_model = SentenceTransformer("intfloat/multilingual-e5-small")
     qdrant = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY, prefer_grpc=False)
     groq_client = Groq(api_key=GROQ_API_KEY)
-    return embed_model, qdrant, groq_client
+    models = groq_client.models.list()
+
+for model in models.data:
+    if "llama-3.3-70b-versatile" in model.id:
+        st.write("FOUND:", model.id)
 
 embed_model, qdrant, groq_client = init_services()
 
