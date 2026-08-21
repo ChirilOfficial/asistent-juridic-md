@@ -28,13 +28,25 @@ GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
 @st.cache_resource
 def init_services():
     embed_model = SentenceTransformer("intfloat/multilingual-e5-small")
-    qdrant = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY, prefer_grpc=False)
+    qdrant = QdrantClient(
+        url=QDRANT_URL,
+        api_key=QDRANT_API_KEY,
+        prefer_grpc=False
+    )
     groq_client = Groq(api_key=GROQ_API_KEY)
+
     models = groq_client.models.list()
 
-for model in models.data:
-    if "llama-3.3-70b-versatile" in model.id:
-        st.write("FOUND:", model.id)
+    found = False
+    for model in models.data:
+        if model.id == "llama-3.3-70b-versatile":
+            st.write("FOUND:", model.id)
+            found = True
+
+    if not found:
+        st.write("llama-3.3-70b-versatile NOT FOUND")
+
+    return embed_model, qdrant, groq_client
 
 embed_model, qdrant, groq_client = init_services()
 
