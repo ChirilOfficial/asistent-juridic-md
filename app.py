@@ -4,7 +4,7 @@ from sentence_transformers import SentenceTransformer
 from groq import Groq
 
 # ---------------------------------------------------------
-# 1. Configurare Pagină Web (Afișaj curat pentru utilizatori)
+# 1. Configurare Pagină Web
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="Asistent Juridic Moldova", 
@@ -21,49 +21,21 @@ st.markdown("Adresează o întrebare juridică. Sistemul caută în peste **1.16
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "").strip()
 
 if not GROQ_API_KEY:
-    st.error("⚠️ Serviciul este temporar indisponibil. Reîncercați mai târziu.")
+    st.error("⚠️ Serviciul este temporar indisponibil. Adăugați GROQ_API_KEY în Secrets.")
     st.stop()
 
 groq_client = Groq(api_key=GROQ_API_KEY)
 
-# ---------------------------------------------------------
-# 3. Selectare automată și silențioasă a celui mai bun model
-# ---------------------------------------------------------
-@st.cache_data(ttl=3600)
-def get_best_available_model():
-    # Ordinea de prioritate pentru performanță maximă pe text juridic
-    preferred_priority = [
-        "llama-3.3-70b-versatile",
-        "openai/gpt-oss-128b",
-        "qwen/qwen3.5-27b",
-        "llama-3.1-8b-instant"
-    ]
-    try:
-        models_data = groq_client.models.list().data
-        available_ids = [m.id for m in models_data]
-        
-        # 1. Alege primul model din lista de preferințe care există în cont
-        for pref in preferred_priority:
-            if pref in available_ids:
-                return pref
-                
-        # 2. Fallback: primul model de chat valid ce nu e guard/whisper/compound
-        valid_chat_models = [
-            m for m in available_ids 
-            if not any(x in m.lower() for x in ["whisper", "guard", "safeguard", "compound"])
-        ]
-        if valid_chat_models:
-            return valid_chat_models[0]
-            
-    except Exception:
-        pass
-        
-    return "llama-3.3-70b-versatile"
-
-BEST_MODEL = get_best_available_model()
+# Lista modelelor active de text (fără unelte interne/guard)
+CANDIDATE_MODELS = [
+    "llama-3.3-70b-versatile",
+    "qwen/qwen3.5-27b",
+    "openai/gpt-oss-128b",
+    "llama-3.1-8b-instant"
+]
 
 # ---------------------------------------------------------
-# 4. Inițializare Qdrant & Embeddings
+# 3. Inițializare Qdrant & Embeddings
 # ---------------------------------------------------------
 QDRANT_URL = "https://5ff2f6d0-eba5-423b-b98f-945782950dcc.us-west-2-0.aws.cloud.qdrant.io"
 QDRANT_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIiwic3ViamVjdCI6ImFwaS1rZXk6NGIyMWQ0ZTgtYmQ1OC00ZWVkLTlhNWItZmE5MTYxNjVhNmIxIn0.XXltHq_43TZZcTuR57V-M_egsOPI_a3OwSre6oDCeuc"
@@ -77,7 +49,7 @@ def load_qdrant_and_embed():
 embed_model, qdrant = load_qdrant_and_embed()
 
 # ---------------------------------------------------------
-# 5. Istoric Chat
+# 4. Istoric Chat
 # ---------------------------------------------------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -87,7 +59,7 @@ for message in st.session_state.messages:
         st.markdown(message["content"])
 
 # ---------------------------------------------------------
-# 6. Flux Principal
+# 5. Flux Principal
 # ---------------------------------------------------------
 if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concediere?"):
     st.session_state.messages.append({"role": "user", "content": prompt})
@@ -104,7 +76,7 @@ if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concedi
             rezultate = qdrant.query_points(
                 collection_name="legis_md",
                 query=query_vector,
-                limit=10
+                limit=8
             )
 
             context_text = ""
@@ -112,11 +84,14 @@ if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concedi
             for idx, point in enumerate(rezultate.points, 1):
                 titlu = point.payload.get("title", "Act Normativ")
                 doc = point.payload.get("document", "")
-                context_text += f"\n--- EXTRACT {idx} [{titlu}] ---\n{doc}\n"
+                
+                # Scurtare documente lungi pentru evitarea depășirii limitei de tokeni
+                truncated_doc = doc[:1000] + "..." if len(doc) > 1000 else doc
+                context_text += f"\n--- EXTRACT {idx} [{titlu}] ---\n{truncated_doc}\n"
+                
                 if titlu not in surse:
                     surse.append(titlu)
 
-            # System Prompt profesional
             system_prompt = """Ești un Expert Consultativ Suprem în Dreptul Republicii Moldova. Misiunea ta este de a oferi consultanță juridică bazată exclusiv pe normele furnizate în context.
 
 CAPITOLUL I. PRINCIPIUL SUPREM AL ANCOREI ÎN CONTEXT
@@ -132,19 +107,30 @@ Răspunsul tău trebuie să folosească structura:
 
             user_prompt = f"CONTEXT JURIDIC:\n{context_text}\n\nÎNTREBARE: {prompt}"
 
-            try:
-                response = groq_client.chat.completions.create(
-                    model=BEST_MODEL,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    temperature=0.1,
-                    max_tokens=1200
-                )
-                raspuns_final = response.choices[0].message.content
-            except Exception as err:
-                raspuns_final = "⚠️ A apărut o eroare la generarea răspunsului. Vă rugăm să reîncercați."
+            # Execuție cu fallback între modele
+            raspuns_final = None
+            errors_log = []
+
+            for model_name in CANDIDATE_MODELS:
+                try:
+                    response = groq_client.chat.completions.create(
+                        model=model_name,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        temperature=0.1,
+                        max_tokens=1000
+                    )
+                    raspuns_final = response.choices[0].message.content
+                    break
+                except Exception as err:
+                    errors_log.append(f"{model_name}: {err}")
+                    continue
+
+            if not raspuns_final:
+                details = "\n".join(errors_log)
+                raspuns_final = f"⚠️ Nu s-a putut genera răspunsul. Detalii erori:\n```\n{details}\n```"
 
             if surse:
                 raspuns_final += "\n\n---\n**📌 Surse / Acte normative identificate:**\n"
