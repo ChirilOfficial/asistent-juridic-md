@@ -26,13 +26,19 @@ if not GROQ_API_KEY:
 
 groq_client = Groq(api_key=GROQ_API_KEY)
 
-# Ordinea de prioritate a modelelor de text
-CANDIDATE_MODELS = [
-    "llama-3.3-70b-versatile",
-    "qwen/qwen3.5-27b",
-    "openai/gpt-oss-128b",
-    "llama-3.1-8b-instant"
-]
+def get_active_chat_models():
+    """Preluare dinamică a modelelor text/chat disponibile în cont."""
+    try:
+        models_data = groq_client.models.list().data
+        all_ids = [m.id for m in models_data]
+        # Filtrare modele care nu sunt destinate generării de text general
+        chat_models = [
+            m_id for m_id in all_ids 
+            if not any(x in m_id.lower() for x in ["whisper", "guard", "safeguard", "compound", "audio", "tts"])
+        ]
+        return chat_models if chat_models else all_ids
+    except Exception:
+        return []
 
 # ---------------------------------------------------------
 # 3. Inițializare Qdrant & Embeddings
@@ -69,11 +75,17 @@ if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concedi
     with st.chat_message("assistant"):
         with st.spinner("🔍 Caut în baza de date juridică și formulez răspunsul..."):
             
-            # Căutare semantică în Qdrant
-            search_text = f"query: {prompt}"
+            # Contextualizare cu mesajele anterioare ale utilizatorului
+            user_history = [m["content"] for m in st.session_state.messages if m["role"] == "user"]
+            if len(user_history) > 1:
+                contextual_prompt = f"{user_history[-2]} | Întrebare nouă: {prompt}"
+            else:
+                contextual_prompt = prompt
+
+            search_text = f"query: Codul Penal, Codul Contraventional, Codul Civil, legislatie Republica Moldova: {contextual_prompt}"
             query_vector = embed_model.encode(search_text).tolist()
             
-            # Selectăm cele mai relevante 5 texte complete (fără tăieturi)
+            # Căutare 5 extrase juridice complete
             rezultate = qdrant.query_points(
                 collection_name="legis_md",
                 query=query_vector,
@@ -85,14 +97,12 @@ if prompt := st.chat_input("Exemplu: Care sunt drepturile angajatului la concedi
             for idx, point in enumerate(rezultate.points, 1):
                 titlu = point.payload.get("title", "Act Normativ")
                 doc = point.payload.get("document", "")
-                
-                # Includem textul integral al articolului/extrasului
                 context_text += f"\n--- EXTRACT {idx} [{titlu}] ---\n{doc}\n"
                 
                 if titlu not in surse:
                     surse.append(titlu)
 
-            system_prompt = """Ești un Expert Consultativ Suprem în Dreptul Republicii Moldova. Misiunea ta este de a oferi consultanță juridică bazată exclusiv pe normele furnizate în context.
+            system_prompt = """Ești un Expert Consultativ Suprem în Dreptul Republicii Moldova. Misiunea ta este de a oferi consultanță juridică bazată pe normele furnizate în context.
 
 CAPITOLUL I. PRINCIPIUL SUPREM AL ANCOREI ÎN CONTEXT
 1. Ești limitat la datele din [CONTEXT JURIDIC].
@@ -105,32 +115,37 @@ Răspunsul tău trebuie să folosească structura:
 ### ⏱️ 3. RIGORI PROCEDURALE ȘI TERMENE
 ### 💡 4. CONCLUZIA CONSULTATIVĂ ȘI PLANUL DE ACȚIUNE"""
 
-            user_prompt = f"CONTEXT JURIDIC:\n{context_text}\n\nÎNTREBARE: {prompt}"
+            user_prompt = f"CONTEXT JURIDIC:\n{context_text}\n\nÎNTREBARE NOUĂ: {prompt}"
 
-            # Încercăm modelele pe rând
+            # Obținere modele active din API
+            active_models = get_active_chat_models()
+            
             raspuns_final = None
             errors_log = []
 
-            for model_name in CANDIDATE_MODELS:
-                try:
-                    response = groq_client.chat.completions.create(
-                        model=model_name,
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt}
-                        ],
-                        temperature=0.1,
-                        max_tokens=1500
-                    )
-                    raspuns_final = response.choices[0].message.content
-                    break
-                except Exception as err:
-                    errors_log.append(f"{model_name}: {err}")
-                    continue
+            if not active_models:
+                raspuns_final = "⚠️ Nu s-a găsit niciun model accesibil în contul Groq."
+            else:
+                for model_name in active_models:
+                    try:
+                        response = groq_client.chat.completions.create(
+                            model=model_name,
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": user_prompt}
+                            ],
+                            temperature=0.1,
+                            max_tokens=1500
+                        )
+                        raspuns_final = response.choices[0].message.content
+                        break
+                    except Exception as err:
+                        errors_log.append(f"`{model_name}`: {err}")
+                        continue
 
             if not raspuns_final:
                 details = "\n".join(errors_log)
-                raspuns_final = f"⚠️ Nu s-a putut genera răspunsul. Detalii erori:\n```\n{details}\n```"
+                raspuns_final = f"⚠️ Nu s-a putut genera răspunsul. Detalii erori:\n{details}"
 
             if surse:
                 raspuns_final += "\n\n---\n**📌 Surse / Acte normative identificate:**\n"
