@@ -97,14 +97,14 @@ RIGORI ȘI PRINCIPII MANDATORII:
             user_prompt = f"CONTEXT JURIDIC:\n{context_text}\n\nÎNTREBARE: {prompt}"
 
             response = groq_client.chat.completions.create(
-                model="llama3-70b-8192",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.1,  # Redus la 0.1 pentru rigoare maximă și zero halucinații
-                max_tokens=1536
-            )
+    model="llama-3.3-70b-versatile",
+    messages=[
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
+    ],
+    temperature=0.1,
+    max_tokens=1536
+)
 
             raspuns_final = response.choices[0].message.content
             
